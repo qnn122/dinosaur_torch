@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 from utils import sample, print_sample
+from torch.autograd import Variable
 
 import matplotlib as mpl
 mpl.use('tkagg')
@@ -83,15 +84,14 @@ criterion = torch.nn.CrossEntropyLoss()
 optimizer  = torch.optim.SGD(rnn_dino.parameters(), lr=lr)
 
 ### TRAINER FUNCTIONS ###
-def optimize(X, Y, a_prev, lr):
+def optimize(X, Y, a_prev):
 	'''
 	Returns:
 		output
 		loss
 	'''
-	optimizer.zero_grad()
-
 	loss = 0
+	optimizer.zero_grad()
 
 	x = {}
 
@@ -112,7 +112,8 @@ def optimize(X, Y, a_prev, lr):
 		# backward and update
 		l = criterion(output, y_ts)
 		loss += l
-		a = a_prev
+		a_prev = Variable(a, requires_grad=True)
+		# a = a_prev # TODO: resolve this. Without it: Trying to backward through the graph a second time, but the buffers have already been freed.
 
 	# backprobagation 
 	loss.backward()
@@ -128,7 +129,7 @@ def optimize(X, Y, a_prev, lr):
 
 	return loss.item() / len(X), a
 
-def train(data, ix_to_ch, ch_to_ix, number_iterations=35000, n_a=50, dino_names=7):
+def train(data, number_iterations=35000, dino_names=7):
 	'''
 	Train the model and generate dinosaur names
 
@@ -143,24 +144,22 @@ def train(data, ix_to_ch, ch_to_ix, number_iterations=35000, n_a=50, dino_names=
 	Returns:
 		parameters 	-- learned parameters
 	'''
+	# rnn_dino.init_weights()
 	a_prev = rnn_dino.init_a0() 	# initialize parameters
 
 	all_loss = []
 
 	examples = [x.lower().strip() for x in data]
 
+	# mini batch
 	for j in range(number_iterations):
+		# print(j)
 		idx = j % len(examples)
-
-		# Prepare data
-		single_example = examples[idx]
-		single_example_ch = [c for c in single_example]
-		single_example_ix = [ch_to_ix[i] for i in single_example_ch]
-		X = [None] + single_example_ix
-		Y = X[1:] + [ch_to_ix['\n']]		# because Y[0] needs to be equal to X[1]
+		X, Y = random_pair(examples, idx)
 
 		# Optimize parameter
-		loss, a_prev = optimize(X, Y, a_prev, lr=lr)
+		loss, a = optimize(X, Y, a_prev)
+		a_prev = Variable(a, requires_grad=True)
 		
 		# for debug
 		all_loss.append(loss)
@@ -186,9 +185,19 @@ def train(data, ix_to_ch, ch_to_ix, number_iterations=35000, n_a=50, dino_names=
 	plt.plot(np.array(all_loss))
 	plt.show()
 
+#### HELPERS ####
+def random_pair(examples, idx):
+	# Prepare data
+	single_example = examples[idx]
+	single_example_ch = [c for c in single_example]
+	single_example_ix = [ch_to_ix[i] for i in single_example_ch]
+	X = [None] + single_example_ix
+	Y = X[1:] + [ch_to_ix['\n']]		# because Y[0] needs to be equal to X[1]
+	return X, Y
+
 if __name__ == '__main__':
 	# test_optimize()
 	with open("dinos.txt") as f:
 		data = f.readlines()
-	train(data, ix_to_ch, ch_to_ix, number_iterations=10000, n_a = 50)
+	train(data, number_iterations=10000)
 
