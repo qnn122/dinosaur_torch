@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import random
-from utils import sample, print_sample
+from utils_torch import get_initial_loss, sample, print_sample, smooth
 from torch.autograd import Variable
 
 import matplotlib as mpl
@@ -59,10 +59,10 @@ class RNN(nn.Module):
 		return hidden, output
 
 	def init_weights(self):
-		coeff = 0.01
-		self.i2h.weight = nn.init.normal_(self.i2h.weight) * coeff
+		coeff = 0.01	# TODO: reduce initial weight by coeff
+		self.i2h.weight = nn.init.normal_(self.i2h.weight)
 		nn.init.zeros_(self.i2h.bias) # or self.i2o.bias.data.zero_()
-		self.h2o.weight = nn.init.normal_(self.h2o.weight) * coeff
+		self.h2o.weight = nn.init.normal_(self.h2o.weight)
 		nn.init.zeros_(self.h2o.bias)
 
 	def init_a0(self):
@@ -119,10 +119,8 @@ def optimize(X, Y, a_prev):
 	loss.backward()
 
 	# Clip gradients. IMPORTANT step
-	'''
 	clipping_value = 5
-	torch.nn.utils.clip_grad_norm(model.parameters(), clipping_value)
-	'''
+	torch.nn.utils.clip_grad_norm(rnn_dino.parameters(), clipping_value)
 
 	# update parameters
 	optimizer.step()
@@ -144,8 +142,10 @@ def train(data, number_iterations=35000, dino_names=7):
 	Returns:
 		parameters 	-- learned parameters
 	'''
-	# rnn_dino.init_weights()
+	rnn_dino.init_weights()
 	a_prev = rnn_dino.init_a0() 	# initialize parameters
+
+	loss = get_initial_loss(data_size, dino_names)
 
 	all_loss = []
 
@@ -158,14 +158,14 @@ def train(data, number_iterations=35000, dino_names=7):
 		X, Y = random_pair(examples, idx)
 
 		# Optimize parameter
-		loss, a = optimize(X, Y, a_prev)
+		cur_loss, a = optimize(X, Y, a_prev)
 		a_prev = Variable(a, requires_grad=True)
+
+		# TODO: add smooth loss 
+		loss = smooth(loss, cur_loss)
 		
 		# for debug
 		all_loss.append(loss)
-
-		# Print
-		# print('iter: {} | loss: {}'.format(j, loss))
 
 		# Every 2000 Iteration, generate "n" characters thanks to sample() to check if the model is learning properly
 		if j % 2000 == 0:
@@ -199,5 +199,5 @@ if __name__ == '__main__':
 	# test_optimize()
 	with open("dinos.txt") as f:
 		data = f.readlines()
-	train(data, number_iterations=10000)
+	train(data, number_iterations=50000)
 
